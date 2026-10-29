@@ -29,8 +29,8 @@ def add_features(g):
 
 
 def build_dataset(prices):
-    out = prices.groupby("ticker", group_keys=False).apply(add_features)
-    return out.reset_index(drop=True)
+    parts = [add_features(g) for _, g in prices.groupby("ticker")]
+    return pd.concat(parts, ignore_index=True)
 
 
 def main():
