@@ -26,8 +26,8 @@ def momentum_baseline(train, test):
 
 def _fit_predict(model):
     def fn(train, test):
-        model.fit(train[FEATURES].values, demeaned_target(train).values)
-        return model.predict(test[FEATURES].values)
+        model.fit(train[FEATURES], demeaned_target(train))
+        return model.predict(test[FEATURES])
     return fn
 
 
