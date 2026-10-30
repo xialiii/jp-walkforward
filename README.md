@@ -49,7 +49,69 @@ Backtest, net of costs for the model rows:
 Interpretation: all mean ICs are close to zero with t statistics inside plus or minus 2, so there is no evidence of predictive power from these features. The momentum baseline has the highest Sharpe among the top 5 strategies, but its IC is not positive and the gap to the other strategies is within noise for a single historical path, so I do not read it as evidence that momentum works.
 
 ## Regularization in geophysics and in finance
-Ridge regression minimizes data misfit plus a penalty on the size of the coefficients. This has the same form as Tikhonov regularization in geophysical inversion, where a penalty on the model stabilizes an ill posed problem. Lasso uses an L1 penalty, which pushes some coefficients exactly to zero. In both settings the data are noisy and an unregularized fit would match the noise. The difference is that in inversion the forward physics is known and regularization selects a plausible model, while in return prediction there is no known law, the signal is extremely weak, and regularization mainly guards against overfitting noise. Honest validation matters more in the second case.
+
+Ridge regression and Lasso belong to the same family of ideas as regularized inversion in geophysics: fit noisy data while a penalty keeps the solution stable. In my research I used Occam style inversion and ModEM, so this section describes those methods as given in the literature and compares them with the models in this project.
+
+### 1. Occam inversion: the smoothest model at a target misfit
+
+Occam inversion (Constable et al., 1987 for 1D; deGroot-Hedlin and Constable, 1990 for 2D magnetotellurics) looks for the smoothest model that fits the data to within an expected tolerance, instead of the best fitting model, which tends to be the roughest:
+
+$$U(m) = \lVert W d - W f(m) \rVert_2^2 + \mu \lVert R m \rVert_2^2$$
+
+Here $f(m)$ is the nonlinear forward response, $W$ weights the data by their errors, and $R$ is a finite difference operator, so the penalty acts on model roughness (a first derivative; second derivatives are also possible). At each iteration the trade off parameter $\mu$ is found by a line search. Until the target misfit (RMS close to 1) can be reached, $\mu$ is chosen to minimize the misfit. Once it can be reached, $\mu$ is chosen so that the misfit equals the target, which gives the smoothest model that fits the data acceptably.
+
+### 2. ModEM: penalty functional with a prior and a model covariance
+
+ModEM (Egbert and Kelbert, 2012; Kelbert et al., 2014) minimizes a penalty functional with nonlinear conjugate gradients:
+
+$$\Phi(m, d) = (d - f(m))^\top C_d^{-1} (d - f(m)) + \nu \, (m - m_0)^\top C_m^{-1} (m - m_0)$$
+
+$C_d$ is the covariance of the data errors, $m_0$ is a prior model (the starting model if no prior is given), $C_m$ is a model covariance that acts as a smoothing operator, and $\nu$ is the trade off (damping) parameter. Larger covariance values give smoother models, and the smoothing and $\nu$ are chosen by the user and tested against the resulting misfit and model.
+
+### 3. Ridge regression and Lasso belong to the same family
+
+Ridge regression with features $X$ and target $y$:
+
+$$\min_w \; \lVert X w - y \rVert_2^2 + \lambda \lVert w \rVert_2^2 \quad\Rightarrow\quad \hat w = (X^\top X + \lambda I)^{-1} X^\top y$$
+
+| | Occam | ModEM | Ridge regression |
+|---|---|---|---|
+| Forward model | nonlinear $f(m)$, linearized each iteration | nonlinear $f(m)$ | linear, $X w$ |
+| Data weighting | $W$ | $C_d^{-1}$ | none (standardized features) |
+| Penalty | roughness $\lVert R m \rVert^2$ | $(m - m_0)^\top C_m^{-1} (m - m_0)$ | $\lVert w \rVert^2$ |
+| Reference model | none | prior $m_0$ | zero |
+| Trade off parameter | $\mu$ by line search to reach the target misfit | $\nu$ set and tested by the user | $\lambda$ fixed in advance |
+
+Ridge is the special case with a linear operator, an identity penalty matrix and a zero reference. In terms of the singular value decomposition, each component of the ridge solution is damped by the filter factor $\sigma_i^2 / (\sigma_i^2 + \lambda)$. Directions that the data constrain poorly (small $\sigma_i$) are suppressed most, which trades a little bias for much lower variance. The same mechanism stabilizes ill posed inversions.
+
+Lasso replaces the squared penalty by an L1 penalty:
+
+$$\min_w \; \lVert X w - y \rVert_2^2 + \lambda \lVert w \rVert_1$$
+
+It sets some coefficients exactly to zero and has no closed form solution. Its counterpart in inversion is a sparsity promoting L1 constraint.
+
+Bayesian view: if the noise is Gaussian and the prior is $w \sim N(0, \tau^2 I)$, the ridge solution is the maximum a posteriori estimate with $\lambda = \sigma^2 / \tau^2$. The ModEM functional has the same structure, with $C_m / \nu$ as the prior covariance around $m_0$. Lasso corresponds to a Laplace prior.
+
+### 4. Where the analogy stops
+
+| | Geophysical inversion | Return prediction |
+|---|---|---|
+| Operator | $f(m)$ is a known physical forward operator | $X$ is a set of statistical features with no known law |
+| Goal | Recover a plausible model of the Earth | Predict new, unseen data |
+| Choosing the trade off | Target misfit from known data errors (Occam), or tested smoothing and damping (ModEM) | Time ordered out of sample validation |
+| Noise | Data errors are available and roughly stationary | Non stationary, heavy tailed, very low signal to noise ratio |
+
+### 5. What this means for this project
+
+Ridge uses alpha 1.0 and Lasso uses alpha 1e-4, with standardized features. Both values were fixed in advance and not tuned on test data. In Occam inversion the trade off follows from a known noise level through the target misfit. Returns offer no such target, so the analogous step would be selecting alpha by time ordered validation inside each training window, which is left as future work.
+
+The regularized linear models did not beat the naive baselines. This is consistent with a weak signal: regularization can stabilize an estimate, but it cannot create predictive information that the features do not contain.
+
+### References
+- Constable, S. C., Parker, R. L., Constable, C. G. (1987). Occam's inversion: a practical algorithm for generating smooth models from electromagnetic sounding data. Geophysics, 52, 289 to 300.
+- deGroot-Hedlin, C., Constable, S. (1990). Occam's inversion to generate smooth, two dimensional models from magnetotelluric data. Geophysics, 55, 1613 to 1624.
+- Egbert, G. D., Kelbert, A. (2012). Computational recipes for electromagnetic inverse problems. Geophysical Journal International, 189, 251 to 267.
+- Kelbert, A., Meqbel, N., Egbert, G. D., Tandon, K. (2014). ModEM: a modular system for inversion of electromagnetic geophysical data. Computers and Geosciences, 66, 40 to 53.
 
 ## Limitations
 1. Survivorship bias: the stocks are today's large companies, which flatters buy and hold results.
